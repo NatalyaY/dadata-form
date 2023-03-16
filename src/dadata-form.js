@@ -23,29 +23,70 @@ customElements.define('dadata-form', class extends HTMLElement {
             LEGAL: 'Организация',
             INDIVIDUAL: 'Индивидуальный предприниматель',
         };
+        this.resultElements = {};
+    }
+
+    static get observedAttributes() {
+        return [
+            'hideresult',
+            'hoststyle',
+            'inputcontainerstyle',
+            'inputstyle',
+            'inputhoverstyle',
+            'inputfocusstyle',
+            'inputfilledstyle',
+            'inputplaceholderstyle',
+            'errorstyle',
+            'suggestionscontainerstyle',
+            'suggestionstitlestyle',
+            'suggestionsliststyle',
+            'suggestionstyle',
+            'suggestionaddressstyle',
+            'suggestionhoverstyle',
+            'resultstyle'
+        ];
+    }
+
+    attributeChangedCallback(name, oldValue, newValue) {
+        if (!this.root) return;
+        if (name == 'hideresult') {
+            const result = this.root.getElementById('result');
+            if (newValue == 'true') {
+                result.style.opacity = 0;
+                result.style.transform = 'scaleY(0)';
+                result.style.position = 'absolute';
+            } else {
+                result.style.position = 'relative';
+                result.style.opacity = 1;
+                result.style.transform = 'scaleY(1)';
+            }
+        } else {
+            const oldStyle = this.root.querySelector('style');
+            oldStyle.innerHTML = this.getStyle();
+        }
     }
 
     getStyle() {
-        return `<style>
+        return `
                 :host {
                     width: 100%;
                     max-width: 800px;
                     display: block;
                     ${this.getAttribute('hostStyle') || ''}
                 }
-                * {
+                :host * {
                     font-family: inherit;
                     margin: 0;
                     box-sizing: border-box;
                 }
-                label {
+                label, .inputSlotWrapper {
                     width: 100%;
                     max-width: 100%;
                     display: flex;
                     flex-direction: column;
-                    ${this.getAttribute('labelStyle') || ''}
+                    ${this.getAttribute('inputContainerStyle') || ''}
                 }
-                input {
+                input, ::slotted(input) {
                     max-width: 100%;
                     border: 1px solid transparent;
                     outline: none;
@@ -55,23 +96,24 @@ customElements.define('dadata-form', class extends HTMLElement {
                     color: inherit;
                     font-size: 1rem;
                     transition: 0.2s;
+                    font-family: inherit;
                     ${this.getAttribute('inputStyle') || ''}
                 }
-                input:hover {
+                input:hover, ::slotted(input:hover) {
                     border-color: rgba(121, 121, 121, 0.5);
                     ${this.getAttribute('inputHoverStyle') || ''}
                 }
-                input:focus {
+                input:focus, ::slotted(input:focus) {
                     border-color: rgba(121, 121, 121, 0.7);
                     background: transparent;
                     ${this.getAttribute('inputFocusStyle') || ''}
                 }
-                input:not(:placeholder-shown) {
+                input:not(:placeholder-shown), ::slotted(input:not(:placeholder-shown)) {
                     background: transparent;
                     border-color: rgba(121, 121, 121, 0.05);
                     ${this.getAttribute('inputFilledStyle') || ''}
                 }
-                input::placeholder {
+                input::placeholder, ::slotted(input::placeholder) {
                     color: rgb(200, 200, 200);
                     ${this.getAttribute('inputPlaceholderStyle') || ''}
                 }
@@ -93,6 +135,8 @@ customElements.define('dadata-form', class extends HTMLElement {
                     top: calc(100% - 8px);
                     width: 100%;
                     max-width: 100%;
+                    max-height: 80vh;
+                    overflow-y: auto;
                     padding: 15px 0;
                     background: white;
                     border: 1px solid rgba(121, 121, 121, 0.7);
@@ -141,9 +185,12 @@ customElements.define('dadata-form', class extends HTMLElement {
                     gap: 15px;
                     max-width: 50%;
                     min-width: 200px;
+                    transition: .2s;
+                    will-change: transform;
+                    transform-origin: 100% 0%;
                     ${this.getAttribute('resultStyle') || ''}
                 }
-            </style>`;
+            `;
     }
 
     async getSuggestions(query) {
@@ -171,14 +218,35 @@ customElements.define('dadata-form', class extends HTMLElement {
 
     showSuggestions() {
         const suggestionsContainer = this.root.getElementById('suggestionsContainer');
+        const rootRect = this.getBoundingClientRect();
         suggestionsContainer.style.opacity = 1;
         suggestionsContainer.style.transform = 'scaleY(1)';
+        suggestionsContainer.style.maxHeight = rootRect.height * 0.8 + 'px';
+        if (rootRect.height < 300 && window.innerHeight - 300 < rootRect.bottom) {
+            if (rootRect.top > 300) {
+                suggestionsContainer.style.bottom = '100%';
+                suggestionsContainer.style.top = 'unset';
+                suggestionsContainer.style.maxHeight = rootRect.top + 'px';
+            } else {
+                this.style.minHeight = '300px';
+                suggestionsContainer.style.maxHeight = 300 * 0.8 + 'px';
+            }
+        } else {
+            suggestionsContainer.style.maxHeight = rootRect.height * 0.8 + window.innerHeight - rootRect.bottom + 'px';
+        }
+        if (window.innerHeight - rootRect.bottom < 0) {
+            this.scrollIntoView();
+        }
     }
 
     hideSuggestions() {
+        this.style.minHeight = '';
         const suggestionsContainer = this.root.getElementById('suggestionsContainer');
         suggestionsContainer.style.opacity = 0;
         suggestionsContainer.style.transform = 'scaleY(0)';
+        suggestionsContainer.style.bottom = 'unset';
+        suggestionsContainer.style.top = '100%';
+        suggestionsContainer.style.maxHeight = '80vh';
     }
 
     handleInput = async (e) => {
@@ -225,11 +293,17 @@ customElements.define('dadata-form', class extends HTMLElement {
 
     handleManualDataChange = () => {
         const values = {
-            'short_name': this.root.getElementById('short_name').value,
-            'full_name': this.root.getElementById('full_name').value,
-            'inn_kpp': this.root.getElementById('inn_kpp').value,
-            'address': this.root.getElementById('address').value,
+            'short_name': null,
+            'full_name': null,
+            'inn_kpp': null,
+            'address': null,
         };
+        Object.entries(this.resultElements).forEach(([key, elems]) => {
+            if (key && elems) {
+                const elem = elems[0];
+                values[key] = elem.tagName === 'INPUT' ? elem.value : elem.textContent;
+            }
+        });
         this.root.dispatchEvent(new CustomEvent('dadata_value_manually_changed', {
             bubbles: true,
             composed: true,
@@ -245,10 +319,28 @@ customElements.define('dadata-form', class extends HTMLElement {
         const { inn, kpp, type } = suggestion.data;
         const address = suggestion.data.address.unrestricted_value;
 
-        this.root.getElementById('short_name').value = short_with_opf;
-        this.root.getElementById('full_name').value = full_with_opf;
-        this.root.getElementById('inn_kpp').value = `${inn} / ${kpp}`;
-        this.root.getElementById('address').value = address;
+        const values = {
+            'short_name': short_with_opf,
+            'full_name': full_with_opf,
+            'inn_kpp': `${inn} / ${kpp}`,
+            'address': address,
+        };
+
+        const resultsElems = Object.entries(this.resultElements);
+        if (!resultsElems.length) return;
+
+        resultsElems.forEach(([key, elems]) => {
+            if (key && elems) {
+                elems.forEach(elem => {
+                    if (elem.tagName === 'INPUT') {
+                        elem.value = values[key];
+                    } else {
+                        elem.textContent = values[key];
+                    }
+                });
+            }
+        });
+
         this.root.getElementById('suggestionsInput').value = short_with_opf;
 
         const typeText = this.root.getElementById('typeText');
@@ -264,12 +356,34 @@ customElements.define('dadata-form', class extends HTMLElement {
             }
         }));
         this.handleBlur();
+
+        if (this.getAttribute('hideResult') == 'true') {
+            const result = this.root.getElementById('result');
+            result.style.position = 'relative';
+            result.style.opacity = 1;
+            result.style.transform = 'scaleY(1)';
+            result.scrollIntoView();
+        }
+    }
+
+    handleSlotResults(slot, name) {
+        const slotElems = slot.assignedElements({ flatten: true });
+        if (!slotElems.length) return;
+        const customResultElems = slotElems
+            .filter(el => el.classList.contains('result'));
+        if (customResultElems.length) {
+            customResultElems.forEach(el => el.tagName === 'INPUT' && el.addEventListener('change', this.handleManualDataChange));
+            this.resultElements[name] = customResultElems;
+        } else {
+            const defaultResultEl = slotElems[0].querySelectorAll('.result');
+            this.resultElements[name] = defaultResultEl;
+        }
     }
 
     connectedCallback() {
         this.root = this.attachShadow({ mode: 'closed' });
 
-        this.root.innerHTML = this.getStyle();
+        this.root.innerHTML = `<style>${this.getStyle()}</style>`;
 
         const label = document.createElement('label');
 
@@ -306,6 +420,12 @@ customElements.define('dadata-form', class extends HTMLElement {
         const result = document.createElement('div');
         result.id = 'result';
 
+        if (this.getAttribute('hideResult') == 'true') {
+            result.style.opacity = 0;
+            result.style.transform = 'scaleY(0)';
+            result.style.position = 'absolute';
+        }
+
         const typeText = document.createElement('p');
         typeText.id = 'typeText';
         typeText.hidden = true;
@@ -313,6 +433,13 @@ customElements.define('dadata-form', class extends HTMLElement {
         result.append(typeText);
 
         Object.entries(this.inputNames).forEach(([name, text]) => {
+
+            const slotWrapper = document.createElement('div');
+            slotWrapper.className = 'inputSlotWrapper';
+
+            const slot = document.createElement('slot');
+            slot.name = name;
+
             const label = document.createElement('label');
             label.textContent = text;
 
@@ -320,13 +447,28 @@ customElements.define('dadata-form', class extends HTMLElement {
             input.placeholder = `Введите ${text.toLowerCase()}`;
             input.autocomplete = 'off';
             input.id = name;
+            input.className = 'result';
             input.addEventListener('change', this.handleManualDataChange);
 
             label.append(input);
-            result.append(label);
+
+            slot.append(label);
+
+            slotWrapper.append(slot);
+
+            result.append(slotWrapper);
+
+            setTimeout(() => {
+                this.handleSlotResults(slot, name);
+            });
         });
 
-        this.root.append(label, errorElement, result);
+        const defaultSlot = document.createElement('slot');
+
+        this.root.append(label, errorElement, result, defaultSlot);
+        this.root.addEventListener('slotchange',
+            e => this.handleSlotResults(e.target, e.target.name)
+        );
     }
 
 });
